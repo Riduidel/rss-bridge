@@ -22,7 +22,12 @@ class GQMagazineBridge extends BridgeAbstract
 	const DEFAULT_DOMAIN = 'www.gqmagazine.fr';
 
 	const PARAMETERS = array( array(
-		'domain' => array(
+	    'headerSize' => array(
+	        'name' => 'Header "minimal size"',
+	        'required' => false,
+	        'defaultValue' => 300
+	    ),
+	    'domain' => array(
 			'name' => 'Domain to use',
 			'required' => true,
 			'defaultValue' => self::DEFAULT_DOMAIN
@@ -97,7 +102,7 @@ class GQMagazineBridge extends BridgeAbstract
 					default:
 						$item['uri'] = $this->getDomain() . '/' . $uri;
 				}
-				$article = $this->loadFullArticle($item['uri']);
+				$article = $this->loadFullArticle($item);
 				if($article) {
 					$item['content'] = $this->replaceUriInHtmlElement($article);
 				} else {
@@ -112,21 +117,67 @@ class GQMagazineBridge extends BridgeAbstract
 
 	/**
 	 * Loads the full article and returns the contents
-	 * @param $uri The article URI
-	 * @return The article content
+	 * @param $item the full item, with title, uri, and so on
+	 * @return The article content as TEXT
 	 */
-	private function loadFullArticle($uri){
+	private function loadFullArticle($item){
+	    $uri = $item['uri'];
+	    $title = $item['title'];
 		$html = getSimpleHTMLDOMCached($uri);
-		return $html->find('section[data-test-id=MainContentWrapper]', 0);
+		$HEADER_SIZE = (int) $this->getInput('headerSize');
+		// First, lcoate element having title as text
+		$selector = sprintf('*[plaintext=%s]', $title);
+		foreach ($html->find($selector) as $titleElement) {
+		    $parent = $titleElement;
+		    do {
+		        // Now we have the title element, let's go on parent element and find all the remaining text
+		        $parent = $parent->parent();
+		    } while(strlen($parent->plaintext)<strlen($title)+$HEADER_SIZE);
+		    // Now we have some parent element which doesn't contain only the title.
+		    // I hope the remaining content is the interesting one 
+		    return $this->filter($titleElement, $parent);
+		}
+	}
+	
+	private function filter($title, $element) {
+	    // Let's try to remove those script tags
+	    foreach($element->find('script') as $script) {
+	        $script_parent = $script->parent();
+	        if($script_parent!=null) {
+	            $script_parent->removeChild($script);
+	        }
+	    }
+	    // Remove all svg which are in "a" tags (they're social network images)
+	    foreach($element->find('svg') as $svg) {
+	        $svg_parent = $svg->parent();
+	        if($svg_parent->tag=='a') {
+	            $container = $svg_parent->parent();
+	            $container->removeChild($svg_parent);
+	        }
+	    }
+	    // Remove date (because it is already extracted)
+	    $date = $element->find('time', 0);
+	    if($date!=null) {
+	        $date->parent()->removeChild($date);
+	    }
+	    // And remove everything after footer (if found)
+	    $footer = $element->find('[data-test-id="ArticleFooter"]', 0);
+	    if ($footer!=null) {
+	        if($footer->parent()==$element) {
+	            while($footer->next_sibling()!=null) {
+	                $element->removeChild($footer->nextSibling());
+	            }
+	        }
+	    }
+	    return str_replace($title->outertext, '', $element->innertext);
 	}
 
 	/**
 	 * Replaces all relative URIs with absolute ones
-	 * @param $element A simplehtmldom element
-	 * @return The $element->innertext with all URIs replaced
+	 * @param $returned the text of the element
+	 * @return The text with all URIs replaced
 	 */
-	private function replaceUriInHtmlElement($element){
-		$returned = $element->innertext;
+	private function replaceUriInHtmlElement($returned){
 		foreach (self::REPLACED_ATTRIBUTES as $initial => $final) {
 			$returned = str_replace($initial . '="/', $final . '="' . self::URI . '/', $returned);
 		}
