@@ -147,6 +147,13 @@ class GQMagazineBridge extends BridgeAbstract
 	            $script_parent->removeChild($script);
 	        }
 	    }
+	    // Let's try to remove those iframe tags (which are googletagmanager inclusions)
+	    foreach($element->find('iframe') as $iframe) {
+	        $iframe_parent = $iframe->parent();
+	        if($iframe_parent!=null) {
+	            $iframe_parent->removeChild($iframe);
+	        }
+	    }
 	    // Remove all svg which are in "a" tags (they're social network images)
 	    foreach($element->find('svg') as $svg) {
 	        $svg_parent = $svg->parent();
